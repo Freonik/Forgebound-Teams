@@ -62,6 +62,12 @@ public final class TeamStore {
                     }
                 }
                 t.allies.addAll(s.getStringList("allies"));
+                ConfigurationSection en = s.getConfigurationSection("enemies");
+                if (en != null) {
+                    for (String e : en.getKeys(false)) {
+                        t.enemies.put(e, en.getInt(e));
+                    }
+                }
                 t.kills = s.getInt("kills");
                 t.deaths = s.getInt("deaths");
                 t.points = s.getLong("points");
@@ -75,6 +81,7 @@ public final class TeamStore {
         // allies that no longer exist
         for (Team t : teams.values()) {
             t.allies.removeIf(a -> !teams.containsKey(a));
+            t.enemies.keySet().removeIf(a -> !teams.containsKey(a));
         }
         syncAllScoreboard();
     }
@@ -91,6 +98,9 @@ public final class TeamStore {
                 y.set(b + "members." + e.getKey() + ".name", t.names.getOrDefault(e.getKey(), "?"));
             }
             y.set(b + "allies", new ArrayList<>(t.allies));
+            for (Map.Entry<String, Integer> e : t.enemies.entrySet()) {
+                y.set(b + "enemies." + e.getKey(), e.getValue());
+            }
             y.set(b + "kills", t.kills);
             y.set(b + "deaths", t.deaths);
             y.set(b + "points", t.points);
@@ -155,6 +165,17 @@ public final class TeamStore {
         return t != null && t.allies.contains(tb);
     }
 
+    /** At war with each other. */
+    public boolean enemies(UUID a, UUID b) {
+        String ta = byPlayer.get(a);
+        String tb = byPlayer.get(b);
+        if (ta == null || tb == null || ta.equals(tb)) {
+            return false;
+        }
+        Team t = teams.get(ta);
+        return t != null && t.enemies.containsKey(tb);
+    }
+
     // ================================================================ changes
 
     Team create(Player leader, String name, String tag) {
@@ -202,6 +223,7 @@ public final class TeamStore {
         t.members.keySet().forEach(byPlayer::remove);
         for (Team other : teams.values()) {
             other.allies.remove(t.id);
+            other.enemies.remove(t.id);
         }
         org.bukkit.scoreboard.Team vanilla = Bukkit.getScoreboardManager().getMainScoreboard().getTeam(t.scoreboardName());
         if (vanilla != null) {

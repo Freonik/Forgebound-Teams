@@ -30,6 +30,8 @@ public final class Team {
     final Map<UUID, Role> members = new LinkedHashMap<>();
     final Map<UUID, String> names = new LinkedHashMap<>();
     final Set<String> allies = new LinkedHashSet<>();
+    /** enemy team id -> our kills against them in this war */
+    final Map<String, Integer> enemies = new LinkedHashMap<>();
     int kills;
     int deaths;
     long points;

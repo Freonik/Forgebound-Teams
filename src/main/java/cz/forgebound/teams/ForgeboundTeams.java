@@ -52,11 +52,16 @@ public final class ForgeboundTeams extends JavaPlugin {
 
     private TeamStore store;
     private TeamListener listener;
+    private TeamMenu menu;
     private Updater updater;
     /** invitee -> team id -> expires (ms) */
     private final Map<UUID, Map<String, Long>> invites = new HashMap<>();
     /** target team -> requesting team -> expires (ms) */
     private final Map<String, Map<String, Long>> allyRequests = new HashMap<>();
+    /** target team -> team offering peace -> expires (ms) */
+    private final Map<String, Map<String, Long>> peaceOffers = new HashMap<>();
+    /** "a;b" -> when war may be declared again (ms) */
+    private final Map<String, Long> warCooldown = new HashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "ForgeboundTeams-IO");
         t.setDaemon(true);
@@ -73,6 +78,8 @@ public final class ForgeboundTeams extends JavaPlugin {
         listener = new TeamListener(this, store);
         getServer().getPluginManager().registerEvents(listener, this);
         listener.start();
+        menu = new TeamMenu(this, store, listener);
+        getServer().getPluginManager().registerEvents(menu, this);
         updater = new Updater(this);
         getServer().getPluginManager().registerEvents(updater, this);
         updater.start();
@@ -213,7 +220,8 @@ public final class ForgeboundTeams extends JavaPlugin {
     }
 
     private LiteralArgumentBuilder<CommandSourceStack> teamTree() {
-        var root = Commands.literal("team").executes(ctx -> player(ctx, this::info));
+        var root = Commands.literal("team").executes(ctx -> player(ctx, p -> menu.open(p)));
+        root.then(Commands.literal("menu").executes(ctx -> player(ctx, p -> menu.open(p))));
         root.then(Commands.literal("create")
                 .then(Commands.argument("name", StringArgumentType.word())
                         .then(Commands.argument("tag", StringArgumentType.word())
@@ -254,6 +262,12 @@ public final class ForgeboundTeams extends JavaPlugin {
         root.then(Commands.literal("unally")
                 .then(Commands.argument("team", StringArgumentType.word()).suggests(suggest(this::teamNames))
                         .executes(ctx -> player(ctx, p -> unally(p, StringArgumentType.getString(ctx, "team"))))));
+        root.then(Commands.literal("enemy")
+                .then(Commands.argument("team", StringArgumentType.word()).suggests(suggest(this::teamNames))
+                        .executes(ctx -> player(ctx, p -> enemy(p, StringArgumentType.getString(ctx, "team"))))));
+        root.then(Commands.literal("peace")
+                .then(Commands.argument("team", StringArgumentType.word()).suggests(suggest(this::teamNames))
+                        .executes(ctx -> player(ctx, p -> peace(p, StringArgumentType.getString(ctx, "team"))))));
         root.then(Commands.literal("info").executes(ctx -> player(ctx, this::info))
                 .then(Commands.argument("team", StringArgumentType.word()).suggests(suggest(this::teamNames))
                         .executes(ctx -> {
@@ -304,7 +318,7 @@ public final class ForgeboundTeams extends JavaPlugin {
 
     // ================================================================ actions
 
-    private void help(CommandSender s) {
+    void help(CommandSender s) {
         tell(s, "&6Team commands:");
         for (String line : List.of(
                 "&e/team create <name> <tag> &7- found a team (tag: 2-4 letters)",
@@ -315,13 +329,14 @@ public final class ForgeboundTeams extends JavaPlugin {
                 "&e/team leader <player> &7- hand over the team",
                 "&e/team color <color> &7/ &e/team tag <tag>",
                 "&e/team ally <team> &7/ &e/team unally <team> &7- allies don't hurt each other",
+                "&e/team enemy <team> &7- declare war (kills count extra) &7/ &e/team peace <team>",
                 "&e/team info [team] &7/ &e/team list &7/ &e/team top",
                 "&e/tc [message] &7- team chat (or start a message with &f!&7), &e/ac <message> &7- team + allies (&f@&7)")) {
             s.sendMessage(color(line));
         }
     }
 
-    private void create(Player p, String name, String tag) {
+    void create(Player p, String name, String tag) {
         if (store.of(p) != null) {
             tell(p, "&cYou are already in a team. &7/team leave first.");
             return;
@@ -359,7 +374,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         return t;
     }
 
-    private void invite(Player p, String targetName) {
+    void invite(Player p, String targetName) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -390,7 +405,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         target.playSound(target.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1.4f);
     }
 
-    private void accept(Player p, String teamName) {
+    void accept(Player p, String teamName) {
         if (store.of(p) != null) {
             tell(p, "&cYou are already in a team.");
             return;
@@ -415,7 +430,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         broadcastTeam(t, "&a" + p.getName() + " joined the team!");
     }
 
-    private void deny(Player p, String teamName) {
+    void deny(Player p, String teamName) {
         Map<String, Long> mine = invites.get(p.getUniqueId());
         if (mine != null && mine.remove(teamName.toLowerCase(Locale.ROOT)) != null) {
             tell(p, "&7Invite declined.");
@@ -426,7 +441,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
     }
 
-    private void leave(Player p) {
+    void leave(Player p) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -441,7 +456,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         broadcastTeam(t, "&7" + p.getName() + " left the team.");
     }
 
-    private void kick(Player p, String targetName) {
+    void kick(Player p, String targetName) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -468,7 +483,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
     }
 
-    private void rank(Player p, String what, String targetName) {
+    void rank(Player p, String what, String targetName) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -503,7 +518,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         store.save();
     }
 
-    private void disband(Player p, boolean confirmed) {
+    void disband(Player p, boolean confirmed) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -523,7 +538,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         Bukkit.broadcast(prefix().append(color("&7The team &f" + t.name + " &7is no more.")));
     }
 
-    private void setColor(Player p, String colorName) {
+    void setColor(Player p, String colorName) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -548,7 +563,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         return s.length() >= 2 ? s.charAt(1) : 'f';
     }
 
-    private void setTag(Player p, String tag) {
+    void setTag(Player p, String tag) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -567,7 +582,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         broadcastTeam(t, "&7The team tag is now &f[" + t.tag + "]&7.");
     }
 
-    private void ally(Player p, String otherName) {
+    void ally(Player p, String otherName) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -583,6 +598,10 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
         if (t.allies.contains(other.id)) {
             tell(p, "&7You are allies already.");
+            return;
+        }
+        if (t.enemies.containsKey(other.id)) {
+            tell(p, "&cYou are at war with them. &7Make peace first (&e/team peace " + other.name + "&7).");
             return;
         }
         int max = getConfig().getInt("max-allies", 1);
@@ -619,7 +638,97 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
     }
 
-    private void unally(Player p, String otherName) {
+    void enemy(Player p, String otherName) {
+        Team t = mine(p);
+        if (t == null) {
+            return;
+        }
+        if (t.role(p.getUniqueId()) != Team.Role.LEADER) {
+            tell(p, "&cOnly the leader can declare war.");
+            return;
+        }
+        Team other = store.byName(otherName);
+        if (other == null || other == t) {
+            tell(p, "&cNo such team.");
+            return;
+        }
+        if (t.enemies.containsKey(other.id)) {
+            tell(p, "&7You are already at war with them.");
+            return;
+        }
+        if (t.allies.contains(other.id)) {
+            tell(p, "&cThey are your allies. &7/team unally " + other.name + " first.");
+            return;
+        }
+        int max = getConfig().getInt("max-enemies", 3);
+        if (t.enemies.size() >= max) {
+            tell(p, "&cYou are already at war with " + max + " teams.");
+            return;
+        }
+        String pair = t.id + ";" + other.id;
+        Long until = warCooldown.get(pair);
+        if (until != null && until > System.currentTimeMillis()) {
+            tell(p, "&cYou just made peace with them. &7War again in " + ((until - System.currentTimeMillis()) / 60_000L + 1) + " min.");
+            return;
+        }
+        t.enemies.put(other.id, 0);
+        other.enemies.put(t.id, 0);
+        store.save();
+        getLogger().info("[Teams] " + t.name + " declared war on " + other.name);
+        Bukkit.broadcast(prefix().append(teamName(t)).append(color(" &4declared war on ")).append(teamName(other))
+                .append(color("&4! &7Kills between them count extra.")));
+        for (Team side : List.of(t, other)) {
+            for (UUID u : side.members.keySet()) {
+                Player m = Bukkit.getPlayer(u);
+                if (m != null) {
+                    m.playSound(m.getLocation(), Sound.EVENT_RAID_HORN, 0.8f, 1f);
+                }
+            }
+        }
+    }
+
+    void peace(Player p, String otherName) {
+        Team t = mine(p);
+        if (t == null) {
+            return;
+        }
+        if (t.role(p.getUniqueId()) != Team.Role.LEADER) {
+            tell(p, "&cOnly the leader can make peace.");
+            return;
+        }
+        Team other = store.byName(otherName);
+        if (other == null || !t.enemies.containsKey(other.id)) {
+            tell(p, "&cYou are not at war with that team.");
+            return;
+        }
+        long now = System.currentTimeMillis();
+        Long offered = peaceOffers.getOrDefault(t.id, Map.of()).get(other.id);
+        if (offered != null && offered > now) {
+            peaceOffers.get(t.id).remove(other.id);
+            int ours = t.enemies.remove(other.id);
+            int theirs = other.enemies.remove(t.id);
+            long cooldown = getConfig().getLong("war-cooldown-hours", 24) * 3_600_000L;
+            warCooldown.put(t.id + ";" + other.id, now + cooldown);
+            warCooldown.put(other.id + ";" + t.id, now + cooldown);
+            store.save();
+            getLogger().info("[Teams] " + t.name + " and " + other.name + " made peace (" + ours + " : " + theirs + ")");
+            Bukkit.broadcast(prefix().append(teamName(t)).append(color(" &7and ")).append(teamName(other))
+                    .append(color(" &amade peace &8(final score " + ours + " : " + theirs + ")&7.")));
+            return;
+        }
+        peaceOffers.computeIfAbsent(other.id, k -> new HashMap<>()).put(t.id, now + 300_000L);
+        tell(p, "&7Peace offered to &f" + other.name + "&7. Their leader has 5 minutes to accept.");
+        UUID leader = other.leader();
+        Player l = leader == null ? null : Bukkit.getPlayer(leader);
+        if (l != null) {
+            l.sendMessage(prefix().append(teamName(t)).append(color(" &7offers peace. "))
+                    .append(color("&a&l[ACCEPT]").clickEvent(ClickEvent.runCommand("/team peace " + t.name))));
+        } else {
+            tell(p, "&7(their leader isn't online right now)");
+        }
+    }
+
+    void unally(Player p, String otherName) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -646,7 +755,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         info(p, t);
     }
 
-    private void info(CommandSender s, Team t) {
+    void info(CommandSender s, Team t) {
         if (t == null) {
             tell(s, "&cNo such team.");
             return;
@@ -660,6 +769,17 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
         s.sendMessage(color("&7Points: &e" + t.points + " &8(#" + rank + ")  &7Kills: &f" + t.kills + "  &7Deaths: &f" + t.deaths
                 + "  &7K/D: &f" + t.kd()));
+        if (!t.enemies.isEmpty()) {
+            Component line = color("&7At war with: ");
+            for (Map.Entry<String, Integer> e : t.enemies.entrySet()) {
+                Team enemy = store.byName(e.getKey());
+                if (enemy != null) {
+                    line = line.append(teamName(enemy)).append(color(" &8(" + e.getValue() + " : "
+                            + enemy.enemies.getOrDefault(t.id, 0) + ") "));
+                }
+            }
+            s.sendMessage(line);
+        }
         if (!t.allies.isEmpty()) {
             Component line = color("&7Allies: ");
             for (String a : t.allies) {
@@ -672,7 +792,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
     }
 
-    private void list(CommandSender s) {
+    void list(CommandSender s) {
         if (store.all().isEmpty()) {
             tell(s, "&7No teams yet. &e/team create <name> <tag>");
             return;
@@ -685,7 +805,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
     }
 
-    private void top(CommandSender s) {
+    void top(CommandSender s) {
         List<Team> ranked = store.ranked();
         if (ranked.isEmpty()) {
             tell(s, "&7No teams yet.");
@@ -703,6 +823,27 @@ public final class ForgeboundTeams extends JavaPlugin {
             s.sendMessage(color("&7...").append(color(" &7" + (ranked.indexOf(t) + 1) + ". ")).append(teamName(t))
                     .append(color(" &e" + t.points + " points")));
         }
+    }
+
+    /** Valid invites of a player: team id -> expires. */
+    List<String> invitesOf(UUID player) {
+        long now = System.currentTimeMillis();
+        return invites.getOrDefault(player, Map.of()).entrySet().stream().filter(e -> e.getValue() > now)
+                .map(Map.Entry::getKey).filter(id -> store.byName(id) != null).toList();
+    }
+
+    /** Teams that offered this team an alliance (still valid). */
+    List<String> allyOffersTo(Team t) {
+        long now = System.currentTimeMillis();
+        return allyRequests.getOrDefault(t.id, Map.of()).entrySet().stream().filter(e -> e.getValue() > now)
+                .map(Map.Entry::getKey).filter(id -> store.byName(id) != null).toList();
+    }
+
+    /** Teams that offered this team peace (still valid). */
+    List<String> peaceOffersTo(Team t) {
+        long now = System.currentTimeMillis();
+        return peaceOffers.getOrDefault(t.id, Map.of()).entrySet().stream().filter(e -> e.getValue() > now)
+                .map(Map.Entry::getKey).filter(id -> store.byName(id) != null).toList();
     }
 
     void broadcastTeam(Team t, String legacy) {

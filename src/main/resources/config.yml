@@ -1,7 +1,7 @@
 # ------------------------------------------------------------
 #  Forgebound Teams
 #  /team create <name> <tag> - invite - accept - leave - kick - promote/demote - leader - disband
-#  /team color <color> - /team tag <tag> - /team ally <team> - /team unally <team> - /team info|list|top
+#  /team color <color> - /team tag <tag> - /team ally|unally <team> - /team enemy|peace <team> - /team info|list|top
 #  /tc [message] team chat (or start a message with !), /ac <message> team + allies (or start with @)
 #  The tag and color show in front of the names (tab list, chat, above heads). Teammates and allies can't hurt
 #  each other - Forgebound sees the teams too (abilities, bounties, trackers, combat tag, quests).
@@ -11,6 +11,11 @@
 max-members: 3
 # how many allied teams a team can have
 max-allies: 1
+# wars: /team enemy <team> declares war (on both sides at once), /team peace <team> ends it when both leaders agree.
+# Kills in a war count extra (points.enemy-kill-bonus) and both teams see the score.
+max-enemies: 3
+# after peace, the same two teams can't go to war again for this long
+war-cooldown-hours: 24
 # true = teammates and allies can hurt each other
 friendly-fire: false
 # names and tags that aren't allowed (anywhere inside, any case)
@@ -26,6 +31,8 @@ chat:
 points:
   # killing a player who isn't a teammate or an ally (the same victim again only after same-victim-minutes)
   player-kill: 3
+  # on top of that when the teams are at war
+  enemy-kill-bonus: 3
   same-victim-minutes: 30
   # any advancement a member gets for the first time / one of Forgebound's own advancements
   advancement: 1

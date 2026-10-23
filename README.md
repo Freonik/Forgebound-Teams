@@ -12,12 +12,24 @@ teammates and allies.
 
 ## Teams
 
+**`/team` opens a menu where everything can be clicked**: create a team (name and tag are typed into a window),
+answer invites, invite online players, manage members (officer, leader, kick), team chat on/off, allies and wars
+(offer, accept, end), the team color and tag, all teams and the leaderboard. The commands below do the same.
+
 - Up to **3 players** per team (`max-members`), one **leader**, **officers** who can invite and kick members.
 - The **tag** (2-4 letters) and the team **color** show in front of the members' names: in the tab list, in chat
   and above their heads.
 - Teammates and allies **can't hurt each other**: hits, arrows, tamed wolves, harmful splash potions.
 - Each team can have **one ally** (`max-allies`). Leaders offer an alliance with `/team ally <team>`, the other
   leader accepts with the same command.
+
+## Wars
+
+A leader can **declare war** on another team with `/team enemy <team>` - on both sides at once, the whole server
+hears it. Kills between teams at war give **+3 extra points** and both teams see the score after each kill
+(`/team info` too). Peace needs both leaders: `/team peace <team>`, the other leader accepts with the same
+command. After peace the same two teams can't go to war again for 24 hours. Up to 3 wars at a time; allies
+have to break the alliance before they can fight.
 
 ## Team chat
 
@@ -36,6 +48,7 @@ Team chat goes through the same chat moderation as everything else (Forgebound G
 | Points | For |
 |---|---|
 | 3 | killing a player who isn't a teammate or an ally (the same victim again after 30 minutes) |
+| +3 | on top of that if your teams are at war |
 | 1 / 3 | a new advancement / one of Forgebound's own advancements |
 | 1 per legend | every 30 minutes, for each Forgebound legend an online member carries (max 3 per player) |
 | 5 - 20 | killing a boss: the Elder Guardian, the Wither, the Warden, the Ender Dragon, Forgebound's Forge Colossus |
@@ -46,6 +59,7 @@ Team chat goes through the same chat moderation as everything else (Forgebound G
 
 | Command | Who | Description |
 |---|---|---|
+| `/team` | everyone | the team menu |
 | `/team create <name> <tag>` | everyone | found a team |
 | `/team invite <player>` | leader, officers | invite a player (valid for 5 minutes) |
 | `/team accept [team]` / `/team deny <team>` | everyone | answer an invite (or click it in chat) |
@@ -56,6 +70,7 @@ Team chat goes through the same chat moderation as everything else (Forgebound G
 | `/team disband` | leader | disband the team (asks first) |
 | `/team color <color>` / `/team tag <tag>` | leader | change the color or the tag |
 | `/team ally <team>` / `/team unally <team>` | leader | offer or accept an alliance / end it |
+| `/team enemy <team>` / `/team peace <team>` | leader | declare war / offer or accept peace |
 | `/team info [team]`, `/team list`, `/team top` | everyone | team info, all teams, the leaderboard |
 | `/tc [message]`, `/ac <message>` | members | team chat, team + allies chat |
 | `/team admin disband <team>` | `teams.admin` | disband any team |

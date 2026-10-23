@@ -134,6 +134,10 @@ public final class TeamListener implements Listener {
 
     // ================================================================ team chat
 
+    boolean teamChatOn(Player p) {
+        return teamChat.contains(p.getUniqueId());
+    }
+
     void toggleChat(Player p) {
         if (store.of(p) == null) {
             ForgeboundTeams.tell(p, "&cYou are not in a team.");
@@ -233,9 +237,18 @@ public final class TeamListener implements Listener {
         String pair = killer.getUniqueId() + ";" + victim.getUniqueId();
         long now = System.currentTimeMillis();
         Long last = recentKills.get(pair);
+        boolean war = vt != null && kt.enemies.containsKey(vt.id);
+        if (war) {
+            kt.enemies.merge(vt.id, 1, Integer::sum);
+            String line = "&4⚔ &f" + killer.getName() + " &7killed &f" + victim.getName() + " &8(" + kt.tag + " "
+                    + kt.enemies.get(vt.id) + " : " + vt.enemies.getOrDefault(kt.id, 0) + " " + vt.tag + ")";
+            plugin.broadcastTeam(kt, line);
+            plugin.broadcastTeam(vt, line);
+        }
         if (last == null || now - last > plugin.getConfig().getLong("points.same-victim-minutes", 30) * 60_000L) {
             recentKills.put(pair, now);
-            add(kt, points("player-kill", 3), killer.getName() + " killed " + victim.getName());
+            add(kt, points("player-kill", 3) + (war ? points("enemy-kill-bonus", 3) : 0),
+                    killer.getName() + " killed " + victim.getName() + (war ? " (war)" : ""));
         }
         store.save();
     }
