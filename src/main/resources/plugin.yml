@@ -1,0 +1,13 @@
+name: ForgeboundTeams
+version: '${project.version}'
+main: cz.forgebound.teams.ForgeboundTeams
+api-version: '1.21.11'
+description: Small teams with a tag, team chat, allies, no friendly fire and a team leaderboard. Works with or without Forgebound.
+authors: [ filip ]
+softdepend: [Forgebound, ForgeboundGuard]
+
+# /team, /tc and /ac are registered in code (Brigadier), with suggestions in the chat.
+permissions:
+  teams.admin:
+    description: /team admin disband, reload, update
+    default: op

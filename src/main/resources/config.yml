@@ -1,0 +1,49 @@
+# ------------------------------------------------------------
+#  Forgebound Teams
+#  /team create <name> <tag> - invite - accept - leave - kick - promote/demote - leader - disband
+#  /team color <color> - /team tag <tag> - /team ally <team> - /team unally <team> - /team info|list|top
+#  /tc [message] team chat (or start a message with !), /ac <message> team + allies (or start with @)
+#  The tag and color show in front of the names (tab list, chat, above heads). Teammates and allies can't hurt
+#  each other - Forgebound sees the teams too (abilities, bounties, trackers, combat tag, quests).
+# ------------------------------------------------------------
+
+# the most players in one team
+max-members: 3
+# how many allied teams a team can have
+max-allies: 1
+# true = teammates and allies can hurt each other
+friendly-fire: false
+# names and tags that aren't allowed (anywhere inside, any case)
+blocked-words: []
+
+chat:
+  # a message starting with this goes to the team only ("" = off)
+  team-prefix: "!"
+  # ... and this to the team and its allies
+  ally-prefix: "@"
+
+# the team leaderboard (/team top)
+points:
+  # killing a player who isn't a teammate or an ally (the same victim again only after same-victim-minutes)
+  player-kill: 3
+  same-victim-minutes: 30
+  # any advancement a member gets for the first time / one of Forgebound's own advancements
+  advancement: 1
+  forgebound-advancement: 3
+  # every legend-every-minutes: per Forgebound legend an online member carries (max 3 per player)
+  per-legend: 1
+  legend-every-minutes: 30
+  # bosses (whoever gets the last hit)
+  forge-colossus: 20
+  bosses:
+    ENDER_DRAGON: 15
+    WITHER: 10
+    WARDEN: 10
+    ELDER_GUARDIAN: 5
+
+auto-update:
+  enabled: true
+  # false = only tell the admins that a new version is out
+  download: true
+  check-hours: 6
+  repo: "Freonik/ForgeboundTeams"
