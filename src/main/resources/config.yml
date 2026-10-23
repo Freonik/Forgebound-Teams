@@ -46,4 +46,4 @@ auto-update:
   # false = only tell the admins that a new version is out
   download: true
   check-hours: 6
-  repo: "Freonik/ForgeboundTeams"
+  repo: "Freonik/Forgebound-Teams"

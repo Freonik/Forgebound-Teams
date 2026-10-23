@@ -107,7 +107,7 @@ public final class Updater implements Listener {
     /** Off the main thread. */
     private void check() {
         try {
-            String repo = cfg("repo", "Freonik/ForgeboundTeams");
+            String repo = cfg("repo", "Freonik/Forgebound-Teams");
             HttpResponse<String> res = http.send(get("https://api.github.com/repos/" + repo + "/releases/latest"),
                     HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() != 200) {
