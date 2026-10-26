@@ -108,6 +108,23 @@ public final class Updater implements Listener {
     private void check() {
         try {
             String repo = cfg("repo", "Freonik/Forgebound-Teams");
+            // the release page redirect tells the newest tag and has no rate limit (the API allows 60 requests/h per IP)
+            String pageTag = latestTagFromPage(repo);
+            if (pageTag != null) {
+                lastError = null;
+                String latest = version(pageTag);
+                if (latest != null && compare(latest, plugin.getPluginMeta().getVersion()) > 0) {
+                    JsonObject release = new JsonObject();
+                    com.google.gson.JsonArray assets = new com.google.gson.JsonArray();
+                    JsonObject a = new JsonObject();
+                    a.addProperty("name", "ForgeboundTeams.jar");
+                    a.addProperty("browser_download_url", "https://github.com/" + repo + "/releases/download/" + pageTag + "/ForgeboundTeams.jar");
+                    assets.add(a);
+                    release.add("assets", assets);
+                    update(repo, pageTag, latest, release);
+                }
+                return;
+            }
             HttpResponse<String> res = http.send(get("https://api.github.com/repos/" + repo + "/releases/latest"),
                     HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() != 200) {
@@ -127,8 +144,10 @@ public final class Updater implements Listener {
                 update(repo, tag, latest, release);
             }
         } catch (Exception ex) {
+            if (!ex.getClass().getSimpleName().equals(lastError)) {
+                plugin.getLogger().info("[Update] Couldn't check for a new version: " + ex.getClass().getSimpleName());
+            }
             lastError = ex.getClass().getSimpleName();
-            plugin.getLogger().fine("Update check failed: " + ex.getMessage());
         }
     }
 
@@ -159,6 +178,25 @@ public final class Updater implements Listener {
         downloaded = version;
         tell("&aForgebound Teams &f" + version + " &ais downloaded"
                 + "&a. &7It's used after the next &frestart&7.");
+    }
+
+    private final HttpClient noRedirect = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(15))
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
+
+    /** The newest release's tag from github.com/<repo>/releases/latest (a redirect), or null. */
+    private String latestTagFromPage(String repo) {
+        try {
+            HttpResponse<Void> res = noRedirect.send(HttpRequest.newBuilder(
+                            URI.create("https://github.com/" + repo + "/releases/latest")).timeout(Duration.ofSeconds(20))
+                    .header("User-Agent", "Forgebound").GET().build(), HttpResponse.BodyHandlers.discarding());
+            String location = res.headers().firstValue("location").orElse("");
+            int at = location.indexOf("/releases/tag/");
+            return at < 0 ? null : location.substring(at + "/releases/tag/".length());
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private static String asset(JsonObject release, String name) {
