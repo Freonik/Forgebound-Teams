@@ -83,6 +83,10 @@ public final class ForgeboundTeams extends JavaPlugin {
         updater = new Updater(this);
         getServer().getPluginManager().registerEvents(updater, this);
         updater.start();
+        // Forgebound's nightly restart asks every Forgebound plugin for a new version at once (one restart for all)
+        java.util.concurrent.Callable<String> nightly = updater::checkNow;
+        getServer().getServicesManager().register(java.util.concurrent.Callable.class, nightly, this,
+                org.bukkit.plugin.ServicePriority.Normal);
         // Forgebound asks this to know who is on the same side (teammates and allies)
         BiPredicate<Player, Player> sameSide = (a, b) -> store.friendly(a.getUniqueId(), b.getUniqueId());
         getServer().getServicesManager().register(BiPredicate.class, sameSide, this, ServicePriority.Normal);

@@ -104,6 +104,17 @@ public final class Updater implements Listener {
         }
     }
 
+    /**
+     * For Forgebound's nightly restart (registered as a Callable service): checks right now (blocking, off the main
+     * thread) and returns the version waiting in plugins/update, or null if there's nothing new.
+     */
+    public String checkNow() {
+        if (on("enabled", true)) {
+            check();
+        }
+        return downloaded;
+    }
+
     /** Off the main thread. */
     private void check() {
         try {
