@@ -115,51 +115,53 @@ public final class Updater implements Listener {
         return downloaded;
     }
 
-    /** Off the main thread. */
+    /** Where the releases are published (the code repository is private); old configs still name the code repo. */
+    static final String RELEASES = "Freonik/Forgebound-releases";
+
+    private String releasesRepo() {
+        String repo = cfg("repo", RELEASES);
+        return repo.equalsIgnoreCase("Freonik/Forgebound-Teams") ? RELEASES : repo;
+    }
+
+    /** Off the main thread. The newest versions are in latest.json of the releases repository (no API rate limit). */
     private void check() {
         try {
-            String repo = cfg("repo", "Freonik/Forgebound-Teams");
-            // the release page redirect tells the newest tag and has no rate limit (the API allows 60 requests/h per IP)
-            String pageTag = latestTagFromPage(repo);
-            if (pageTag != null) {
-                lastError = null;
-                String latest = version(pageTag);
-                if (latest != null && compare(latest, plugin.getPluginMeta().getVersion()) > 0) {
-                    JsonObject release = new JsonObject();
-                    com.google.gson.JsonArray assets = new com.google.gson.JsonArray();
-                    JsonObject a = new JsonObject();
-                    a.addProperty("name", "ForgeboundTeams.jar");
-                    a.addProperty("browser_download_url", "https://github.com/" + repo + "/releases/download/" + pageTag + "/ForgeboundTeams.jar");
-                    assets.add(a);
-                    release.add("assets", assets);
-                    update(repo, pageTag, latest, release);
-                }
+            HttpResponse<String> res = http.send(HttpRequest.newBuilder(URI.create("https://raw.githubusercontent.com/"
+                            + releasesRepo() + "/main/latest.json?t=" + System.currentTimeMillis() / 60_000))
+                    .timeout(Duration.ofSeconds(20)).header("User-Agent", "ForgeboundTeams").GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() != 200) {
+                fail("latest.json: HTTP " + res.statusCode());
                 return;
             }
-            HttpResponse<String> res = http.send(get("https://api.github.com/repos/" + repo + "/releases/latest"),
-                    HttpResponse.BodyHandlers.ofString());
-            if (res.statusCode() != 200) {
-                lastError = res.statusCode() == 404 ? "the repository isn't public (HTTP 404)" : "HTTP " + res.statusCode();
+            JsonObject all = JsonParser.parseString(res.body()).getAsJsonObject();
+            if (!all.has("ForgeboundTeams")) {
+                fail("latest.json has no ForgeboundTeams entry");
                 return;
             }
             lastError = null;
-            JsonObject release = JsonParser.parseString(res.body()).getAsJsonObject();
-            String tag = release.get("tag_name").getAsString();
-            String latest = version(tag);
-            String current = plugin.getPluginMeta().getVersion();
-            if (latest == null) {
-                return;
-            }
-            int cmp = compare(latest, current);
-            if (cmp > 0) {
-                update(repo, tag, latest, release);
+            JsonObject me = all.getAsJsonObject("ForgeboundTeams");
+            String latest = me.has("version") ? version(me.get("version").getAsString()) : null;
+            if (latest != null && compare(latest, plugin.getPluginMeta().getVersion()) > 0 && me.has("jar")) {
+                JsonObject release = new JsonObject();
+                com.google.gson.JsonArray assets = new com.google.gson.JsonArray();
+                JsonObject a = new JsonObject();
+                a.addProperty("name", "ForgeboundTeams.jar");
+                a.addProperty("browser_download_url", me.get("jar").getAsString());
+                assets.add(a);
+                release.add("assets", assets);
+                update(releasesRepo(), me.has("tag") ? me.get("tag").getAsString() : latest, latest, release);
             }
         } catch (Exception ex) {
-            if (!ex.getClass().getSimpleName().equals(lastError)) {
-                plugin.getLogger().info("[Update] Couldn't check for a new version: " + ex.getClass().getSimpleName());
-            }
-            lastError = ex.getClass().getSimpleName();
+            fail(ex.getClass().getSimpleName() + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
         }
+    }
+
+    /** Logs a failed check once (not every hour the same thing). */
+    private void fail(String why) {
+        if (!why.equals(lastError)) {
+            plugin.getLogger().info("[Update] Couldn't check for a new version: " + why);
+        }
+        lastError = why;
     }
 
     private void update(String repo, String tag, String version, JsonObject release) throws IOException, InterruptedException {
@@ -191,24 +193,6 @@ public final class Updater implements Listener {
                 + "&a. &7It's used after the next &frestart&7.");
     }
 
-    private final HttpClient noRedirect = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(15))
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .build();
-
-    /** The newest release's tag from github.com/<repo>/releases/latest (a redirect), or null. */
-    private String latestTagFromPage(String repo) {
-        try {
-            HttpResponse<Void> res = noRedirect.send(HttpRequest.newBuilder(
-                            URI.create("https://github.com/" + repo + "/releases/latest")).timeout(Duration.ofSeconds(20))
-                    .header("User-Agent", "Forgebound").GET().build(), HttpResponse.BodyHandlers.discarding());
-            String location = res.headers().firstValue("location").orElse("");
-            int at = location.indexOf("/releases/tag/");
-            return at < 0 ? null : location.substring(at + "/releases/tag/".length());
-        } catch (Exception ex) {
-            return null;
-        }
-    }
 
     private static String asset(JsonObject release, String name) {
         if (!release.has("assets")) {
@@ -221,11 +205,6 @@ public final class Updater implements Listener {
             }
         }
         return null;
-    }
-
-    private static HttpRequest get(String url) {
-        return HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(20))
-                .header("Accept", "application/vnd.github+json").header("User-Agent", "ForgeboundTeams").GET().build();
     }
 
     /** "v2.7.0-build.65" -> "2.7.0" */

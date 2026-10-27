@@ -56,3 +56,8 @@ jobs:
           NOTES
           gh release create "$TAG" target/ForgeboundTeams.jar --title "Forgebound Teams ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
             --notes-file notes.md --latest $EXTRA
+
+      - name: Publish to Forgebound-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: bash .github/publish-releases.sh ForgeboundTeams teams "Forgebound Teams ${VERSION} (build ${GITHUB_RUN_NUMBER})" false target/ForgeboundTeams.jar
