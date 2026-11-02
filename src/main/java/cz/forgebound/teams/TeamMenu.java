@@ -111,10 +111,13 @@ public final class TeamMenu implements Listener {
         return s;
     }
 
-    private static Material banner(NamedTextColor c) {
+    private static Material banner(net.kyori.adventure.text.format.TextColor color) {
+        NamedTextColor c = color instanceof NamedTextColor n ? n : NamedTextColor.nearestTo(color);
         String dye;
-        if (c == NamedTextColor.RED || c == NamedTextColor.DARK_RED) {
-            dye = c == NamedTextColor.RED ? "RED" : "BROWN";
+        if (c == NamedTextColor.RED) {
+            dye = "RED";
+        } else if (c == NamedTextColor.DARK_RED) {
+            dye = "BROWN";
         } else if (c == NamedTextColor.GOLD) {
             dye = "ORANGE";
         } else if (c == NamedTextColor.YELLOW) {
@@ -127,24 +130,43 @@ public final class TeamMenu implements Listener {
             dye = "LIGHT_BLUE";
         } else if (c == NamedTextColor.DARK_AQUA) {
             dye = "CYAN";
-        } else if (c == NamedTextColor.BLUE) {
+        } else if (c == NamedTextColor.BLUE || c == NamedTextColor.DARK_BLUE) {
             dye = "BLUE";
         } else if (c == NamedTextColor.LIGHT_PURPLE) {
             dye = "MAGENTA";
         } else if (c == NamedTextColor.DARK_PURPLE) {
             dye = "PURPLE";
         } else if (c == NamedTextColor.GRAY) {
+            dye = "LIGHT_GRAY";
+        } else if (c == NamedTextColor.DARK_GRAY) {
             dye = "GRAY";
+        } else if (c == NamedTextColor.BLACK) {
+            dye = "BLACK";
         } else {
             dye = "WHITE";
         }
         return Material.valueOf(dye + "_BANNER");
     }
 
-    private static String legacy(NamedTextColor c) {
-        String s = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacyAmpersand()
-                .serialize(Component.text("x", c));
-        return s.length() >= 2 ? "&" + s.charAt(1) : "&f";
+    private static String legacy(net.kyori.adventure.text.format.TextColor c) {
+        return ForgeboundTeams.code(c);
+    }
+
+    /** The team's own banner, or a plain one in the team color. */
+    private static ItemStack bannerOf(Team t, String name, String... lore) {
+        ItemStack s = item(banner(t.color), name, lore);
+        if (t.banner != null) {
+            ItemStack own = t.banner.clone();
+            own.setAmount(1);
+            own.setItemMeta(own.getItemMeta());
+            ItemMeta meta = own.getItemMeta();
+            meta.displayName(s.getItemMeta().displayName());
+            meta.lore(s.getItemMeta().lore());
+            meta.addItemFlags(ItemFlag.values());
+            own.setItemMeta(meta);
+            return own;
+        }
+        return s;
     }
 
     private ItemStack teamItem(Team t, String... extra) {
@@ -154,8 +176,12 @@ public final class TeamMenu implements Listener {
                 "&7Members: &f" + t.members.size() + "/" + plugin.maxSize() + " &8(" + online + " online)",
                 "&7Points: &e" + t.points + " &8(#" + rank + ")",
                 "&7Kills: &f" + t.kills + " &7Deaths: &f" + t.deaths + " &7K/D: &f" + t.kd()));
+        int bounty = FbBridge.teamBounty(t);
+        if (bounty > 0) {
+            lore.add("&7Team bounty: &6☠ " + bounty + " tokens");
+        }
         lore.addAll(List.of(extra));
-        return item(banner(t.color), legacy(t.color) + "&l[" + t.tag + "] " + t.name, lore.toArray(String[]::new));
+        return bannerOf(t, legacy(t.color) + "&l[" + t.tag + "] " + t.name, lore.toArray(String[]::new));
     }
 
     private void show(Player p, Menu m) {
@@ -257,6 +283,9 @@ public final class TeamMenu implements Listener {
             }
         }
         // buttons
+        set(m, 36, item(Material.ENDER_CHEST, "&6&lTeam stash", "&7A shared chest for &6Bounty Tokens&7.",
+                "&7Now: &6" + plugin.stash.tokens(t) + " tokens", "&7Everyone in the team can put in and take out.", "",
+                "&eClick to open"), (Consumer<Player>) plugin.stash::open);
         boolean chat = listener.teamChatOn(p);
         set(m, 37, item(chat ? Material.WRITABLE_BOOK : Material.BOOK, "&a&lTeam chat: " + (chat ? "&aON" : "&7OFF"),
                 "&7ON: everything you write goes to the team.", "&7Anytime: &f!message &7= team, &f@message &7= team + allies",
@@ -274,7 +303,7 @@ public final class TeamMenu implements Listener {
         set(m, 41, item(Material.BOOKSHELF, "&f&lAll teams", "&7" + store.all().size() + " teams", "", "&eClick"),
                 (Consumer<Player>) pl -> teams(pl, null));
         if (leader) {
-            set(m, 42, item(Material.COMPARATOR, "&e&lSettings", "&7Color and tag", "", "&eClick"), (Consumer<Player>) this::settings);
+            set(m, 42, item(Material.COMPARATOR, "&e&lSettings", "&7Color, banner and tag", "", "&eClick"), (Consumer<Player>) this::settings);
         } else {
             set(m, 42, item(Material.GRAY_DYE, "&7Settings", "&7Only the leader can change them."), (Consumer<Player>) null);
         }
@@ -516,8 +545,7 @@ public final class TeamMenu implements Listener {
                     + plugin.getConfig().getLong("points.enemy-kill-bonus", 3) + " &7extra.", "&7The whole server hears it.", "",
                     "&eClick to pick a team"), (Consumer<Player>) pl -> teamPicker(pl, "Declare war on...",
                     other -> !t.allies.contains(other.id) && !t.enemies.containsKey(other.id),
-                    (q, other) -> confirm(q, "War on " + other.name + "?", "&7Both teams are at war at once.",
-                            () -> plugin.enemy(q, other.name), this::wars), this::wars));
+                    (q, other) -> stakeDialog(q, other), this::wars));
         }
         set(m, 27, item(Material.ARROW, "&7Back"), (Consumer<Player>) this::open);
         show(p, m);
@@ -551,20 +579,26 @@ public final class TeamMenu implements Listener {
             open(p);
             return;
         }
-        Menu m = menu(4, "&8Team settings");
-        int slot = 10;
-        for (NamedTextColor c : TeamStore.COLORS) {
-            if (slot == 17) {
-                slot = 19;
+        Menu m = menu(6, "&8Team settings");
+        int[] slots = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 28, 29, 30, 31, 32, 33, 34, 37, 38, 39, 40, 41, 42, 43};
+        int i = 0;
+        for (String name : TeamStore.colorNames()) {
+            if (i >= slots.length) {
+                break;
             }
-            String name = c.toString();
-            boolean current = c == t.color;
+            net.kyori.adventure.text.format.TextColor c = TeamStore.parseColor(name);
+            boolean current = c.value() == t.color.value();
             ItemStack s = item(banner(c), legacy(c) + "&l" + name.replace('_', ' '), current ? "&a✔ current color" : "&eClick");
-            set(m, slot++, s, (Consumer<Player>) pl -> then(pl, () -> plugin.setColor(pl, name), this::settings));
+            set(m, slots[i++], s, (Consumer<Player>) pl -> then(pl, () -> plugin.setColor(pl, name), this::settings));
         }
-        set(m, 31, item(Material.NAME_TAG, "&f&lChange the tag", "&7Now: " + legacy(t.color) + "[" + t.tag + "]", "", "&eClick"),
+        set(m, 45, item(Material.ARROW, "&7Back"), (Consumer<Player>) this::open);
+        set(m, 47, item(Material.BRUSH, "&d&lOwn color", "&7Any color as &f#rrggbb&7, e.g. &#ff8800#ff8800",
+                "&7Now: " + legacy(t.color) + TeamStore.colorName(t.color), "", "&eClick"), (Consumer<Player>) this::colorDialog);
+        set(m, 49, item(Material.NAME_TAG, "&f&lChange the tag", "&7Now: " + legacy(t.color) + "[" + t.tag + "]", "", "&eClick"),
                 (Consumer<Player>) this::tagDialog);
-        set(m, 27, item(Material.ARROW, "&7Back"), (Consumer<Player>) this::open);
+        set(m, 51, bannerOf(t, "&6&lTeam banner", "&7Make a banner at a loom, hold it", "&7in your hand and click here.",
+                        t.banner != null ? "&7Right-click: back to the plain one" : "", "", "&eClick"),
+                (BiConsumer<Player, ClickType>) (pl, click) -> then(pl, () -> plugin.setBanner(pl, click.isRightClick()), this::settings));
         show(p, m);
     }
 
@@ -620,5 +654,48 @@ public final class TeamMenu implements Listener {
                     settings(pl);
                 })).build();
         form(p, "&f&lChange the tag", "&7Now: [" + t.tag + "]", List.of(tag), ok);
+    }
+
+    private void colorDialog(Player p) {
+        Team t = store.of(p);
+        if (t == null) {
+            return;
+        }
+        var hex = DialogInput.text("hex", ForgeboundTeams.color("&7Color &8(#rrggbb, e.g. #ff8800)"))
+                .initial(t.color.asHexString()).maxLength(7).width(140).build();
+        ActionButton ok = ActionButton.builder(ForgeboundTeams.color("&a&lSave")).width(150)
+                .action(action((pl, view) -> {
+                    plugin.setColor(pl, view.getText("hex") == null ? "" : view.getText("hex").trim());
+                    settings(pl);
+                })).build();
+        form(p, "&d&lOwn team color", "&7The tag and chat show it exactly. The name above the head uses the closest of the 16 basic colors.",
+                List.of(hex), ok);
+    }
+
+    private void stakeDialog(Player p, Team other) {
+        Team t = store.of(p);
+        if (t == null) {
+            return;
+        }
+        int have = plugin.stash.tokens(t);
+        var stake = DialogInput.text("stake", ForgeboundTeams.color("&7Stake in Bounty Tokens &8(0 = no stake)"))
+                .initial("0").maxLength(4).width(120).build();
+        ActionButton ok = ActionButton.builder(ForgeboundTeams.color("&4&lDeclare war")).width(150)
+                .action(action((pl, view) -> {
+                    int n;
+                    try {
+                        n = Integer.parseInt(view.getText("stake") == null ? "0" : view.getText("stake").trim());
+                    } catch (NumberFormatException ex) {
+                        n = -1;
+                    }
+                    if (n < 0) {
+                        ForgeboundTeams.tell(pl, "&cThat's not a number.");
+                    } else {
+                        plugin.enemy(pl, other.name, n);
+                    }
+                    wars(pl);
+                })).build();
+        form(p, "&4&lWar on " + other.name, "&7Both teams put the stake from their stash (they match it with what they have). "
+                + "The team with more kills when the war ends takes it all. Your stash: &6" + have + " tokens", List.of(stake), ok);
     }
 }

@@ -53,6 +53,7 @@ public final class ForgeboundTeams extends JavaPlugin {
     private TeamStore store;
     private TeamListener listener;
     private TeamMenu menu;
+    TeamStash stash;
     private Updater updater;
     /** invitee -> team id -> expires (ms) */
     private final Map<UUID, Map<String, Long>> invites = new HashMap<>();
@@ -78,8 +79,12 @@ public final class ForgeboundTeams extends JavaPlugin {
         listener = new TeamListener(this, store);
         getServer().getPluginManager().registerEvents(listener, this);
         listener.start();
+        stash = new TeamStash(this, store);
+        getServer().getPluginManager().registerEvents(stash, this);
+        store.beforeDisband = this::settleWarsOnDisband;
         menu = new TeamMenu(this, store, listener);
         getServer().getPluginManager().registerEvents(menu, this);
+        new TeamPerks(this, store).start();
         updater = new Updater(this);
         getServer().getPluginManager().registerEvents(updater, this);
         updater.start();
@@ -102,6 +107,9 @@ public final class ForgeboundTeams extends JavaPlugin {
         if (updater != null) {
             updater.stop();
         }
+        if (stash != null) {
+            stash.closeAll();
+        }
         if (store != null) {
             store.save();
         }
@@ -121,8 +129,20 @@ public final class ForgeboundTeams extends JavaPlugin {
         return Math.max(1, getConfig().getInt("max-members", 3));
     }
 
+    private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.builder().character('&').hexColors().build();
+
+    /** "&a text" (and "&#ff8800 text") -> a component */
     public static Component color(String legacy) {
-        return LegacyComponentSerializer.legacyAmpersand().deserialize(legacy).decoration(TextDecoration.ITALIC, false);
+        return LEGACY.deserialize(legacy).decoration(TextDecoration.ITALIC, false);
+    }
+
+    /** a color as a legacy code: "&c" or "&#ff8800" */
+    static String code(net.kyori.adventure.text.format.TextColor c) {
+        if (c instanceof NamedTextColor n) {
+            String s = LegacyComponentSerializer.legacyAmpersand().serialize(Component.text("x", n));
+            return s.length() >= 2 ? "&" + s.charAt(1) : "&f";
+        }
+        return "&" + c.asHexString();
     }
 
     static Component prefix() {
@@ -254,9 +274,12 @@ public final class ForgeboundTeams extends JavaPlugin {
         root.then(Commands.literal("disband").executes(ctx -> player(ctx, p -> disband(p, false)))
                 .then(Commands.literal("confirm").executes(ctx -> player(ctx, p -> disband(p, true)))));
         root.then(Commands.literal("color")
-                .then(Commands.argument("color", StringArgumentType.word())
-                        .suggests(suggest(() -> TeamStore.COLORS.stream().map(NamedTextColor::toString).toList()))
+                .then(Commands.argument("color", StringArgumentType.greedyString())
+                        .suggests(suggest(TeamStore::colorNames))
                         .executes(ctx -> player(ctx, p -> setColor(p, StringArgumentType.getString(ctx, "color"))))));
+        root.then(Commands.literal("banner").executes(ctx -> player(ctx, p -> setBanner(p, false)))
+                .then(Commands.literal("reset").executes(ctx -> player(ctx, p -> setBanner(p, true)))));
+        root.then(Commands.literal("stash").executes(ctx -> player(ctx, p -> stash.open(p))));
         root.then(Commands.literal("tag")
                 .then(Commands.argument("tag", StringArgumentType.word())
                         .executes(ctx -> player(ctx, p -> setTag(p, StringArgumentType.getString(ctx, "tag"))))));
@@ -268,7 +291,10 @@ public final class ForgeboundTeams extends JavaPlugin {
                         .executes(ctx -> player(ctx, p -> unally(p, StringArgumentType.getString(ctx, "team"))))));
         root.then(Commands.literal("enemy")
                 .then(Commands.argument("team", StringArgumentType.word()).suggests(suggest(this::teamNames))
-                        .executes(ctx -> player(ctx, p -> enemy(p, StringArgumentType.getString(ctx, "team"))))));
+                        .executes(ctx -> player(ctx, p -> enemy(p, StringArgumentType.getString(ctx, "team"), 0)))
+                        .then(Commands.argument("stake", com.mojang.brigadier.arguments.IntegerArgumentType.integer(0))
+                                .executes(ctx -> player(ctx, p -> enemy(p, StringArgumentType.getString(ctx, "team"),
+                                        com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "stake")))))));
         root.then(Commands.literal("peace")
                 .then(Commands.argument("team", StringArgumentType.word()).suggests(suggest(this::teamNames))
                         .executes(ctx -> player(ctx, p -> peace(p, StringArgumentType.getString(ctx, "team"))))));
@@ -300,6 +326,14 @@ public final class ForgeboundTeams extends JavaPlugin {
                                 tell(ctx.getSource().getSender(), "&cNo such team.");
                             } else {
                                 broadcastTeam(t, "&cYour team was disbanded by an admin.");
+                                UUID lead = t.leader();
+                                Player lp = lead == null ? null : Bukkit.getPlayer(lead);
+                                if (lp != null) {
+                                    giveStashTo(t, lp);
+                                } else if (stash.tokens(t) > 0) {
+                                    getLogger().warning("[Teams] " + t.name + " had " + stash.tokens(t)
+                                            + " tokens in its stash and its leader is offline - they are gone");
+                                }
                                 store.disband(t);
                                 getLogger().info("[Teams] " + ctx.getSource().getSender().getName() + " disbanded " + t.name + " (admin)");
                                 tell(ctx.getSource().getSender(), "&7Disbanded &f" + t.name + "&7.");
@@ -454,6 +488,9 @@ public final class ForgeboundTeams extends JavaPlugin {
             tell(p, "&cYou lead the team. &7Hand it over first (&e/team leader <player>&7) or &e/team disband&7.");
             return;
         }
+        if (t.members.size() == 1) {
+            giveStashTo(t, p);                          // the last one out takes the stash
+        }
         store.leave(t, p.getUniqueId());
         getLogger().info("[Teams] " + p.getName() + " left " + t.name + (t.members.isEmpty() ? " (disbanded)" : ""));
         tell(p, "&7You left &f" + t.name + "&7.");
@@ -537,6 +574,7 @@ public final class ForgeboundTeams extends JavaPlugin {
             return;
         }
         broadcastTeam(t, "&cThe team was disbanded.");
+        giveStashTo(t, p);
         store.disband(t);
         getLogger().info("[Teams] " + p.getName() + " disbanded " + t.name);
         Bukkit.broadcast(prefix().append(color("&7The team &f" + t.name + " &7is no more.")));
@@ -547,9 +585,9 @@ public final class ForgeboundTeams extends JavaPlugin {
         if (t == null) {
             return;
         }
-        NamedTextColor c = NamedTextColor.NAMES.value(colorName.toLowerCase(Locale.ROOT));
-        if (c == null || !TeamStore.COLORS.contains(c)) {
-            tell(p, "&cColors: " + String.join(", ", TeamStore.COLORS.stream().map(NamedTextColor::toString).toList()));
+        net.kyori.adventure.text.format.TextColor c = TeamStore.parseColor(colorName);
+        if (c == null) {
+            tell(p, "&cColors: " + String.join(", ", TeamStore.colorNames()) + " &7or any &f#rrggbb");
             return;
         }
         if (t.role(p.getUniqueId()) != Team.Role.LEADER) {
@@ -559,12 +597,36 @@ public final class ForgeboundTeams extends JavaPlugin {
         t.color = c;
         store.syncScoreboard(t);
         store.save();
-        broadcastTeam(t, "&7The team color is now " + "&" + legacyCode(c) + colorName.toLowerCase(Locale.ROOT) + "&7.");
+        broadcastTeam(t, "&7The team color is now " + code(c) + TeamStore.colorName(c) + "&7.");
     }
 
-    private static char legacyCode(NamedTextColor c) {
-        String s = LegacyComponentSerializer.legacyAmpersand().serialize(Component.text("x", c));
-        return s.length() >= 2 ? s.charAt(1) : 'f';
+    /** The banner in the leader's hand becomes the team's banner (reset = back to a banner in the team color). */
+    void setBanner(Player p, boolean reset) {
+        Team t = mine(p);
+        if (t == null) {
+            return;
+        }
+        if (t.role(p.getUniqueId()) != Team.Role.LEADER) {
+            tell(p, "&cOnly the leader can do that.");
+            return;
+        }
+        if (reset) {
+            t.banner = null;
+            store.save();
+            tell(p, "&7The team banner is the plain one in the team color again.");
+            return;
+        }
+        org.bukkit.inventory.ItemStack hand = p.getInventory().getItemInMainHand();
+        if (!org.bukkit.Tag.ITEMS_BANNERS.isTagged(hand.getType())) {
+            tell(p, "&cHold a banner in your hand. &7Make it at a loom first - any pattern you like.");
+            return;
+        }
+        org.bukkit.inventory.ItemStack copy = hand.clone();
+        copy.setAmount(1);
+        t.banner = copy;
+        store.save();
+        getLogger().info("[Teams] " + p.getName() + " set the banner of " + t.name);
+        broadcastTeam(t, "&a" + p.getName() + " set a new team banner! &7(/team)");
     }
 
     void setTag(Player p, String tag) {
@@ -642,7 +704,7 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
     }
 
-    void enemy(Player p, String otherName) {
+    void enemy(Player p, String otherName, int stake) {
         Team t = mine(p);
         if (t == null) {
             return;
@@ -675,12 +737,42 @@ public final class ForgeboundTeams extends JavaPlugin {
             tell(p, "&cYou just made peace with them. &7War again in " + ((until - System.currentTimeMillis()) / 60_000L + 1) + " min.");
             return;
         }
+        int maxStake = getConfig().getInt("war-stakes.max", 256);
+        if (stake > 0 && !getConfig().getBoolean("war-stakes.enabled", true)) {
+            stake = 0;
+        }
+        if (stake > maxStake) {
+            tell(p, "&cThe biggest stake is &f" + maxStake + " &ctokens.");
+            return;
+        }
+        if (stake > 0 && stash.tokens(t) < stake) {
+            tell(p, "&cYour team stash only has &f" + stash.tokens(t) + " &ctokens. &7(/team stash)");
+            return;
+        }
+        // they match the stake with what their stash has
+        int matched = Math.min(stake, stash.tokens(other));
+        if (stake > 0 && matched == 0) {
+            tell(p, "&7" + other.name + " has no tokens in its stash - the war goes on without a stake.");
+        }
+        if (matched > 0) {
+            stash.take(t, matched);
+            stash.take(other, matched);
+            t.stakes.put(other.id, matched);
+            other.stakes.put(t.id, matched);
+        }
+        long now = System.currentTimeMillis();
+        t.warStart.put(other.id, now);
+        other.warStart.put(t.id, now);
         t.enemies.put(other.id, 0);
         other.enemies.put(t.id, 0);
         store.save();
-        getLogger().info("[Teams] " + t.name + " declared war on " + other.name);
+        getLogger().info("[Teams] " + t.name + " declared war on " + other.name + (matched > 0 ? " (stake " + matched + " each)" : ""));
         Bukkit.broadcast(prefix().append(teamName(t)).append(color(" &4declared war on ")).append(teamName(other))
                 .append(color("&4! &7Kills between them count extra.")));
+        if (matched > 0) {
+            Bukkit.broadcast(prefix().append(color("&6⚖ Both teams staked &e" + matched + " Bounty Tokens&6 - the team with more kills takes all &e"
+                    + (matched * 2) + "&6. &7(the war ends after " + getConfig().getInt("war-stakes.hours", 48) + " h at the latest)")));
+        }
         for (Team side : List.of(t, other)) {
             for (UUID u : side.members.keySet()) {
                 Player m = Bukkit.getPlayer(u);
@@ -709,8 +801,11 @@ public final class ForgeboundTeams extends JavaPlugin {
         Long offered = peaceOffers.getOrDefault(t.id, Map.of()).get(other.id);
         if (offered != null && offered > now) {
             peaceOffers.get(t.id).remove(other.id);
-            int ours = t.enemies.remove(other.id);
-            int theirs = other.enemies.remove(t.id);
+            int ours = t.enemies.getOrDefault(other.id, 0);
+            int theirs = other.enemies.getOrDefault(t.id, 0);
+            settleWar(t, other, null);
+            t.enemies.remove(other.id);
+            other.enemies.remove(t.id);
             long cooldown = getConfig().getLong("war-cooldown-hours", 24) * 3_600_000L;
             warCooldown.put(t.id + ";" + other.id, now + cooldown);
             warCooldown.put(other.id + ";" + t.id, now + cooldown);
@@ -759,6 +854,90 @@ public final class ForgeboundTeams extends JavaPlugin {
         info(p, t);
     }
 
+    // ================================================================ war pots
+
+    /** Pays out the pot of a war between a and b: winner = more kills (or forced), a draw gives each its stake back. */
+    void settleWar(Team a, Team b, Team forcedWinner) {
+        int sa = a.stakes.getOrDefault(b.id, 0);
+        int sb = b.stakes.getOrDefault(a.id, 0);
+        a.stakes.remove(b.id);
+        b.stakes.remove(a.id);
+        a.warStart.remove(b.id);
+        b.warStart.remove(a.id);
+        if (sa + sb <= 0) {
+            return;
+        }
+        int ka = a.enemies.getOrDefault(b.id, 0);
+        int kb = b.enemies.getOrDefault(a.id, 0);
+        Team winner = forcedWinner != null ? forcedWinner : ka > kb ? a : kb > ka ? b : null;
+        if (winner == null) {
+            stash.give(a, sa);
+            stash.give(b, sb);
+            Bukkit.broadcast(prefix().append(teamName(a)).append(color(" &7and ")).append(teamName(b))
+                    .append(color(" &7ended their war in a draw - each got its &e" + sa + " &7tokens back.")));
+            getLogger().info("[Teams] war pot " + a.name + " vs " + b.name + ": draw, stakes back");
+        } else {
+            stash.give(winner, sa + sb);
+            Bukkit.broadcast(prefix().append(teamName(winner)).append(color(" &6won the war pot: &e" + (sa + sb)
+                    + " Bounty Tokens &6into their stash!")));
+            getLogger().info("[Teams] war pot " + a.name + " vs " + b.name + ": " + winner.name + " won " + (sa + sb));
+        }
+        store.save();
+    }
+
+    /** A team that disbands during a war loses its pots to the other side. */
+    private void settleWarsOnDisband(Team t) {
+        for (String id : new ArrayList<>(t.enemies.keySet())) {
+            Team other = store.byId(id);
+            if (other != null) {
+                settleWar(t, other, other);
+            }
+        }
+    }
+
+    /** Wars with a stake end by themselves after war-stakes.hours. */
+    void endOldWars() {
+        long limit = getConfig().getLong("war-stakes.hours", 48) * 3_600_000L;
+        if (limit <= 0) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (Team t : new ArrayList<>(store.all())) {
+            for (String id : new ArrayList<>(t.warStart.keySet())) {
+                Team other = store.byId(id);
+                Long start = t.warStart.get(id);
+                if (other == null || start == null || now - start < limit || !t.stakes.containsKey(id)) {
+                    continue;
+                }
+                int ours = t.enemies.getOrDefault(id, 0);
+                int theirs = other.enemies.getOrDefault(t.id, 0);
+                settleWar(t, other, null);
+                t.enemies.remove(id);
+                other.enemies.remove(t.id);
+                long cooldown = getConfig().getLong("war-cooldown-hours", 24) * 3_600_000L;
+                warCooldown.put(t.id + ";" + other.id, now + cooldown);
+                warCooldown.put(other.id + ";" + t.id, now + cooldown);
+                store.save();
+                getLogger().info("[Teams] the war " + t.name + " vs " + other.name + " ended by time (" + ours + " : " + theirs + ")");
+                Bukkit.broadcast(prefix().append(teamName(t)).append(color(" &7and ")).append(teamName(other))
+                        .append(color(" &7- the war is over &8(final score " + ours + " : " + theirs + ")&7.")));
+            }
+        }
+    }
+
+    /** Everything in the team stash goes to this player (leaving last / disbanding). */
+    void giveStashTo(Team t, Player p) {
+        int n = stash.tokens(t);
+        stash.close(t);
+        if (n > 0 && stash.take(t, n)) {
+            if (FbBridge.give(p, n)) {
+                tell(p, "&7You got the team stash: &e" + n + " Bounty Tokens&7.");
+            } else {
+                getLogger().warning("[Teams] " + n + " stash tokens of " + t.name + " couldn't be given (Forgebound missing)");
+            }
+        }
+    }
+
     void info(CommandSender s, Team t) {
         if (t == null) {
             tell(s, "&cNo such team.");
@@ -773,6 +952,10 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
         s.sendMessage(color("&7Points: &e" + t.points + " &8(#" + rank + ")  &7Kills: &f" + t.kills + "  &7Deaths: &f" + t.deaths
                 + "  &7K/D: &f" + t.kd()));
+        int bounty = FbBridge.teamBounty(t);
+        if (bounty > 0) {
+            s.sendMessage(color("&7Team bounty: &6" + bounty + " tokens"));
+        }
         if (!t.enemies.isEmpty()) {
             Component line = color("&7At war with: ");
             for (Map.Entry<String, Integer> e : t.enemies.entrySet()) {
@@ -819,8 +1002,9 @@ public final class ForgeboundTeams extends JavaPlugin {
         for (int i = 0; i < Math.min(10, ranked.size()); i++) {
             Team t = ranked.get(i);
             String medal = i == 0 ? "&6" : i == 1 ? "&f" : i == 2 ? "&c" : "&7";
+            int bounty = FbBridge.teamBounty(t);
             s.sendMessage(color(medal + (i + 1) + ". ").append(teamName(t)).append(color(" &e" + t.points + " points &8- "
-                    + t.kills + " kills, K/D " + t.kd())));
+                    + t.kills + " kills, K/D " + t.kd() + (bounty > 0 ? " &6☠ " + bounty : ""))));
         }
         if (s instanceof Player p && store.of(p) != null && ranked.indexOf(store.of(p)) >= 10) {
             Team t = store.of(p);

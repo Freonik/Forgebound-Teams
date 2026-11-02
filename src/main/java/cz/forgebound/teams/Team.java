@@ -1,6 +1,7 @@
 package cz.forgebound.teams;
 
-import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -26,7 +27,19 @@ public final class Team {
     final String id;
     String name;
     String tag;
-    NamedTextColor color;
+    TextColor color;
+    /** the team's own banner (set from a banner in the leader's hand), null = a banner in the team color */
+    ItemStack banner;
+    /** the team stash (Bounty Tokens only), null = empty */
+    ItemStack[] stash;
+    /** tokens the stash owes (didn't fit in, or Forgebound wasn't there to make them) - added when there's room */
+    int owed;
+    /** enemy team id -> how many tokens this team staked on that war */
+    final Map<String, Integer> stakes = new LinkedHashMap<>();
+    /** enemy team id -> when the war started (ms) */
+    final Map<String, Long> warStart = new LinkedHashMap<>();
+    /** points since the last weekly reward */
+    long weekPoints;
     final Map<UUID, Role> members = new LinkedHashMap<>();
     final Map<UUID, String> names = new LinkedHashMap<>();
     final Set<String> allies = new LinkedHashSet<>();
@@ -37,7 +50,7 @@ public final class Team {
     long points;
     long created;
 
-    Team(String id, String name, String tag, NamedTextColor color) {
+    Team(String id, String name, String tag, TextColor color) {
         this.id = id;
         this.name = name;
         this.tag = tag;
@@ -56,7 +69,7 @@ public final class Team {
         return tag;
     }
 
-    public NamedTextColor color() {
+    public TextColor color() {
         return color;
     }
 

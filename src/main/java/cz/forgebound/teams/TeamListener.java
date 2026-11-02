@@ -287,6 +287,7 @@ public final class TeamListener implements Listener {
         long pts = forgebound ? points("forgebound-advancement", 3) : points("advancement", 1);
         if (pts > 0) {
             t.points += pts;
+            t.weekPoints += pts;
             store.save();
         }
     }
@@ -313,6 +314,7 @@ public final class TeamListener implements Listener {
             }
             if (legends > 0) {
                 t.points += per * Math.min(legends, 3);
+                t.weekPoints += per * Math.min(legends, 3);
                 changed = true;
             }
         }
@@ -323,6 +325,7 @@ public final class TeamListener implements Listener {
 
     private void add(Team t, long pts, String why) {
         t.points += pts;
+        t.weekPoints += pts;
         plugin.getLogger().info("[Teams] " + t.name + " +" + pts + " points (" + why + ")");
     }
 

@@ -22,6 +22,25 @@ answer invites, invite online players, manage members (officer, leader, kick), t
 - Teammates and allies **can't hurt each other**: hits, arrows, tamed wolves, harmful splash potions.
 - Each team can have **one ally** (`max-allies`). Leaders offer an alliance with `/team ally <team>`, the other
   leader accepts with the same command.
+- **Colors:** 13 basic colors, 18 more (pink, orange, mint, teal, lavender...) or any `#rrggbb`. The tag and chat
+  show the exact color, the name above the head the closest of the 16 basic ones.
+- **Team banner:** make any banner at a loom, hold it and run `/team banner` (or click it in the settings). It shows
+  in the menus and lists. `/team banner reset` goes back to the plain one.
+- **Team stash:** `/team stash` (or the ender chest in the menu) is a chest the whole team shares - only
+  **Bounty Tokens** go in. Everyone can put in and take out. When the last member leaves or the leader disbands,
+  the tokens go to them.
+- **Together:** members within 16 blocks of each other get **Regeneration I** (`together` in the config).
+
+## Team bounty
+
+The bounties of the members (Forgebound) add up to the **team bounty** (in `/team top`, `/team info` and the menus).
+Whoever kills a member also gets **10 % of the bounties of the rest of the team** in tokens (max 32,
+`team-bounty`), on top of the victim's own bounty.
+
+## Weekly rewards
+
+Every **Sunday at 20:00** (`weekly-rewards`) the three teams with the most points **that week** get Bounty Tokens
+into their stash: **30 / 20 / 10**. The weekly points start from 0 again; the leaderboard points stay.
 
 ## Wars
 
@@ -30,6 +49,11 @@ hears it. Kills between teams at war give **+3 extra points** and both teams see
 (`/team info` too). Peace needs both leaders: `/team peace <team>`, the other leader accepts with the same
 command. After peace the same two teams can't go to war again for 24 hours. Up to 3 wars at a time; allies
 have to break the alliance before they can fight.
+
+**Stakes:** `/team enemy <team> <tokens>` (or the menu asks) - both teams put that many Bounty Tokens from their
+stash into the pot (the other side matches it with what its stash has). When the war ends, the team with **more
+kills takes the whole pot** into its stash; a draw gives the stakes back, a team that disbands loses. A war with a
+stake ends by itself after **48 hours** (`war-stakes`).
 
 ## Team chat
 
@@ -68,9 +92,11 @@ Team chat goes through the same chat moderation as everything else (Forgebound G
 | `/team promote` / `demote <player>` | leader | make a member an officer, or back |
 | `/team leader <player>` | leader | hand the team over |
 | `/team disband` | leader | disband the team (asks first) |
-| `/team color <color>` / `/team tag <tag>` | leader | change the color or the tag |
+| `/team color <color\|#rrggbb>` / `/team tag <tag>` | leader | change the color or the tag |
+| `/team banner [reset]` | leader | the banner in your hand becomes the team banner |
+| `/team stash` | members | the shared chest for Bounty Tokens |
 | `/team ally <team>` / `/team unally <team>` | leader | offer or accept an alliance / end it |
-| `/team enemy <team>` / `/team peace <team>` | leader | declare war / offer or accept peace |
+| `/team enemy <team> [stake]` / `/team peace <team>` | leader | declare war (with a stake) / offer or accept peace |
 | `/team info [team]`, `/team list`, `/team top` | everyone | team info, all teams, the leaderboard |
 | `/tc [message]`, `/ac <message>` | members | team chat, team + allies chat |
 | `/team admin disband <team>` | `teams.admin` | disband any team |

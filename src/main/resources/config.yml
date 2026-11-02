@@ -1,7 +1,8 @@
 # ------------------------------------------------------------
 #  Forgebound Teams
 #  /team create <name> <tag> - invite - accept - leave - kick - promote/demote - leader - disband
-#  /team color <color> - /team tag <tag> - /team ally|unally <team> - /team enemy|peace <team> - /team info|list|top
+#  /team color <color|#rrggbb> - /team tag <tag> - /team banner [reset] - /team stash
+#  /team ally|unally <team> - /team enemy <team> [stake] - /team peace <team> - /team info|list|top
 #  /tc [message] team chat (or start a message with !), /ac <message> team + allies (or start with @)
 #  The tag and color show in front of the names (tab list, chat, above heads). Teammates and allies can't hurt
 #  each other - Forgebound sees the teams too (abilities, bounties, trackers, combat tag, quests).
@@ -16,6 +17,35 @@ max-allies: 1
 max-enemies: 3
 # after peace, the same two teams can't go to war again for this long
 war-cooldown-hours: 24
+# a war can have a stake: both teams put Bounty Tokens from their stash in (the other side matches it with what
+# it has), the team with more kills when the war ends takes it all (a draw = stakes back, disbanding = the other wins)
+war-stakes:
+  enabled: true
+  max: 256
+  # a war with a stake ends by itself after this long (0 = only when both leaders make peace)
+  hours: 48
+
+# team bounty: killing a member also pays this % of the bounties of the REST of the team (Forgebound bounties)
+team-bounty:
+  enabled: true
+  kill-percent: 10
+  max-bonus: 32
+
+# every week the best teams (points earned that week) get Bounty Tokens into their stash
+weekly-rewards:
+  enabled: true
+  day: SUNDAY
+  hour: 20
+  timezone: "Europe/Prague"
+  # 1st, 2nd, 3rd...
+  tokens: [30, 20, 10]
+
+# members close to each other get an effect (refreshed every 2 s, no particles)
+together:
+  enabled: true
+  radius: 16
+  effect: regeneration
+  amplifier: 0
 # true = teammates and allies can hurt each other
 friendly-fire: false
 # names and tags that aren't allowed (anywhere inside, any case)

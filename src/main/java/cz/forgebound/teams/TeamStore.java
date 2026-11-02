@@ -2,6 +2,8 @@ package cz.forgebound.teams;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.ConfigurationSection;
@@ -28,6 +30,36 @@ public final class TeamStore {
     static final List<NamedTextColor> COLORS = List.of(NamedTextColor.RED, NamedTextColor.GOLD, NamedTextColor.YELLOW,
             NamedTextColor.GREEN, NamedTextColor.DARK_GREEN, NamedTextColor.AQUA, NamedTextColor.DARK_AQUA, NamedTextColor.BLUE,
             NamedTextColor.LIGHT_PURPLE, NamedTextColor.DARK_PURPLE, NamedTextColor.DARK_RED, NamedTextColor.WHITE, NamedTextColor.GRAY);
+    /** extra colors (names show them in the tag and chat; the name above the head uses the nearest of the 16 basic ones) */
+    static final Map<String, TextColor> PRESETS = new java.util.LinkedHashMap<>();
+
+    static {
+        PRESETS.put("dark_blue", NamedTextColor.DARK_BLUE);
+        PRESETS.put("dark_gray", NamedTextColor.DARK_GRAY);
+        PRESETS.put("black", NamedTextColor.BLACK);
+        PRESETS.put("pink", TextColor.color(0xFF6EC7));
+        PRESETS.put("rose", TextColor.color(0xE8467C));
+        PRESETS.put("crimson", TextColor.color(0xC0143C));
+        PRESETS.put("coral", TextColor.color(0xFF7F50));
+        PRESETS.put("orange", TextColor.color(0xFF8C1A));
+        PRESETS.put("amber", TextColor.color(0xFFBF00));
+        PRESETS.put("brown", TextColor.color(0x8B5A2B));
+        PRESETS.put("olive", TextColor.color(0x9AA33C));
+        PRESETS.put("lime", TextColor.color(0x9EF01A));
+        PRESETS.put("mint", TextColor.color(0x7DFFB3));
+        PRESETS.put("teal", TextColor.color(0x1FB5A8));
+        PRESETS.put("sky", TextColor.color(0x7CC8FF));
+        PRESETS.put("navy", TextColor.color(0x2B4C9B));
+        PRESETS.put("lavender", TextColor.color(0xB79CFF));
+        PRESETS.put("violet", TextColor.color(0x8A2BE2));
+    }
+
+    /** every color name a team can pick (the basic ones first) */
+    static List<String> colorNames() {
+        List<String> list = new ArrayList<>(COLORS.stream().map(NamedTextColor::toString).toList());
+        list.addAll(PRESETS.keySet());
+        return list;
+    }
 
     private final ForgeboundTeams plugin;
     private final File file;
@@ -44,6 +76,7 @@ public final class TeamStore {
 
     void load() {
         YamlConfiguration y = YamlConfiguration.loadConfiguration(file);
+        weeklyPaid = y.getLong("weekly-paid");
         ConfigurationSection root = y.getConfigurationSection("teams");
         if (root != null) {
             for (String id : root.getKeys(false)) {
@@ -72,6 +105,35 @@ public final class TeamStore {
                 t.deaths = s.getInt("deaths");
                 t.points = s.getLong("points");
                 t.created = s.getLong("created");
+                t.owed = s.getInt("stash-owed");
+                t.weekPoints = s.getLong("week-points");
+                ConfigurationSection st = s.getConfigurationSection("stakes");
+                if (st != null) {
+                    st.getKeys(false).forEach(k -> t.stakes.put(k, st.getInt(k)));
+                }
+                ConfigurationSection ws = s.getConfigurationSection("war-start");
+                if (ws != null) {
+                    ws.getKeys(false).forEach(k -> t.warStart.put(k, ws.getLong(k)));
+                }
+                if (s.isString("banner")) {
+                    t.banner = fromBase64(s.getString("banner"));
+                }
+                List<String> stash = s.getStringList("stash");
+                if (!stash.isEmpty()) {
+                    t.stash = new ItemStack[TeamStash.SIZE];
+                    for (String line : stash) {
+                        int c = line.indexOf(':');
+                        try {
+                            int slot = Integer.parseInt(line.substring(0, c));
+                            ItemStack item = fromBase64(line.substring(c + 1));
+                            if (slot >= 0 && slot < TeamStash.SIZE && item != null) {
+                                t.stash[slot] = item;
+                            }
+                        } catch (RuntimeException ignored) {
+                            // broken entry
+                        }
+                    }
+                }
                 if (!t.members.isEmpty()) {
                     teams.put(id, t);
                     t.members.keySet().forEach(u -> byPlayer.put(u, id));
@@ -82,17 +144,47 @@ public final class TeamStore {
         for (Team t : teams.values()) {
             t.allies.removeIf(a -> !teams.containsKey(a));
             t.enemies.keySet().removeIf(a -> !teams.containsKey(a));
+            t.stakes.keySet().removeIf(a -> !t.enemies.containsKey(a));
+            t.warStart.keySet().removeIf(a -> !t.enemies.containsKey(a));
         }
         syncAllScoreboard();
     }
 
+    /** when the weekly team rewards were last paid (ms) */
+    long weeklyPaid;
+
     void save() {
         YamlConfiguration y = new YamlConfiguration();
+        y.set("weekly-paid", weeklyPaid);
         for (Team t : teams.values()) {
             String b = "teams." + t.id + ".";
             y.set(b + "name", t.name);
             y.set(b + "tag", t.tag);
-            y.set(b + "color", t.color.toString());
+            y.set(b + "color", colorName(t.color));
+            if (t.banner != null) {
+                y.set(b + "banner", toBase64(t.banner));
+            }
+            if (t.owed > 0) {
+                y.set(b + "stash-owed", t.owed);
+            }
+            for (Map.Entry<String, Integer> e : t.stakes.entrySet()) {
+                y.set(b + "stakes." + e.getKey(), e.getValue());
+            }
+            for (Map.Entry<String, Long> e : t.warStart.entrySet()) {
+                y.set(b + "war-start." + e.getKey(), e.getValue());
+            }
+            y.set(b + "week-points", t.weekPoints);
+            if (t.stash != null) {
+                List<String> stash = new ArrayList<>();
+                for (int i = 0; i < t.stash.length; i++) {
+                    if (t.stash[i] != null && !t.stash[i].isEmpty()) {
+                        stash.add(i + ":" + toBase64(t.stash[i]));
+                    }
+                }
+                if (!stash.isEmpty()) {
+                    y.set(b + "stash", stash);
+                }
+            }
             for (Map.Entry<UUID, Team.Role> e : t.members.entrySet()) {
                 y.set(b + "members." + e.getKey() + ".role", e.getValue().name());
                 y.set(b + "members." + e.getKey() + ".name", t.names.getOrDefault(e.getKey(), "?"));
@@ -111,9 +203,57 @@ public final class TeamStore {
 
     // ================================================================ queries
 
-    static NamedTextColor color(String name) {
-        NamedTextColor c = NamedTextColor.NAMES.value(name.toLowerCase(Locale.ROOT));
+    static TextColor color(String name) {
+        TextColor c = parseColor(name);
         return c == null ? NamedTextColor.WHITE : c;
+    }
+
+    /** "red", "pink" or "#ff8800" -> the color, null if it isn't one */
+    static TextColor parseColor(String name) {
+        if (name == null) {
+            return null;
+        }
+        String n = name.trim().toLowerCase(Locale.ROOT);
+        NamedTextColor named = NamedTextColor.NAMES.value(n);
+        if (named != null) {
+            return named;
+        }
+        if (PRESETS.containsKey(n)) {
+            return PRESETS.get(n);
+        }
+        if (!n.startsWith("#")) {
+            n = "#" + n;
+        }
+        return n.matches("#[0-9a-f]{6}") ? TextColor.fromHexString(n) : null;
+    }
+
+    /** the name a color is saved and shown as ("red", "pink", "#ff8800") */
+    static String colorName(TextColor c) {
+        if (c instanceof NamedTextColor named) {
+            return named.toString();
+        }
+        for (Map.Entry<String, TextColor> e : PRESETS.entrySet()) {
+            if (e.getValue().value() == c.value()) {
+                return e.getKey();
+            }
+        }
+        return c.asHexString();
+    }
+
+    private static String toBase64(ItemStack s) {
+        return java.util.Base64.getEncoder().encodeToString(s.serializeAsBytes());
+    }
+
+    private static ItemStack fromBase64(String s) {
+        try {
+            return ItemStack.deserializeBytes(java.util.Base64.getDecoder().decode(s));
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    public Team byId(String id) {
+        return id == null ? null : teams.get(id);
     }
 
     public Team of(UUID player) {
@@ -180,7 +320,7 @@ public final class TeamStore {
 
     Team create(Player leader, String name, String tag) {
         String id = name.toLowerCase(Locale.ROOT);
-        NamedTextColor color = COLORS.get(Math.floorMod(id.hashCode(), COLORS.size()));
+        TextColor color = COLORS.get(Math.floorMod(id.hashCode(), COLORS.size()));
         Team t = new Team(id, name, tag.toUpperCase(Locale.ROOT), color);
         t.created = System.currentTimeMillis();
         teams.put(id, t);
@@ -218,7 +358,13 @@ public final class TeamStore {
         save();
     }
 
+    /** called before a team disappears (war pots) */
+    java.util.function.Consumer<Team> beforeDisband;
+
     void disband(Team t) {
+        if (beforeDisband != null) {
+            beforeDisband.accept(t);
+        }
         teams.remove(t.id);
         t.members.keySet().forEach(byPlayer::remove);
         for (Team other : teams.values()) {
@@ -269,7 +415,7 @@ public final class TeamStore {
         }
         v.displayName(Component.text(t.name, t.color));
         v.prefix(Component.text("[" + t.tag + "] ", t.color));
-        v.color(t.color);
+        v.color(t.color instanceof NamedTextColor n ? n : NamedTextColor.nearestTo(t.color));
         v.setAllowFriendlyFire(plugin.getConfig().getBoolean("friendly-fire", false));
         v.setCanSeeFriendlyInvisibles(true);
         for (String name : t.names.values()) {
