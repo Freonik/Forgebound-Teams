@@ -27,7 +27,7 @@ import java.util.Map;
 public final class TeamStash implements Listener {
 
     static final int SIZE = 27;
-    private static final NamespacedKey TOKEN = new NamespacedKey("forgebound", "bounty_token");
+    private static final NamespacedKey TOKEN = new NamespacedKey("customcraft", "bounty_token");
 
     private final ForgeboundTeams plugin;
     private final TeamStore store;
