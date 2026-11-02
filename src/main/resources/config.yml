@@ -52,6 +52,8 @@ friendly-fire: false
 blocked-words: []
 
 chat:
+  # the public chat shows the team like the tab list: <[TAG] Name> message
+  show-tag: true
   # a message starting with this goes to the team only ("" = off)
   team-prefix: "!"
   # ... and this to the team and its allies

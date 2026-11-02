@@ -173,6 +173,19 @@ public final class TeamListener implements Listener {
                 .append(message.color(allies ? NamedTextColor.AQUA : NamedTextColor.GREEN));
     }
 
+    /** Public chat shows the team like the tab list: "<[TAG] Name> message" in the team color. */
+    private void publicFormat(AsyncChatEvent event, Team t) {
+        if (!plugin.getConfig().getBoolean("chat.show-tag", true)) {
+            return;
+        }
+        net.kyori.adventure.text.format.TextColor nameColor = t.color instanceof NamedTextColor n ? n : NamedTextColor.nearestTo(t.color);
+        event.renderer(ChatRenderer.viewerUnaware((source, displayName, msg) -> Component.text("<")
+                .append(Component.text("[" + t.tag + "] ", t.color))
+                .append(displayName.colorIfAbsent(nameColor))
+                .append(Component.text("> "))
+                .append(msg)));
+    }
+
     /** After the moderation (Guard runs at LOW): "!text" or team-chat mode goes to the team, "@text" to team + allies. */
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
@@ -194,6 +207,7 @@ public final class TeamListener implements Listener {
             if (mode) {
                 // in team-chat mode "!" means everyone
                 event.message(Component.text(plain.substring(teamMark.length()).trim()));
+                publicFormat(event, t);
                 return;
             }
             allies = false;
@@ -202,9 +216,11 @@ public final class TeamListener implements Listener {
             allies = false;
             text = plain;
         } else {
+            publicFormat(event, t);
             return;
         }
         if (text.isEmpty()) {
+            publicFormat(event, t);
             return;
         }
         UUID me = p.getUniqueId();
