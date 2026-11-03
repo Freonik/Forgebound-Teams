@@ -12,6 +12,11 @@
 max-members: 3
 # how many allied teams a team can have
 max-allies: 1
+# when an alliance ends: for truce-minutes kills between the two teams pay no bounty (they can still fight), and
+# the same two teams can't become allies again for a while - so nobody breaks an alliance just to cash in a bounty
+alliance:
+  truce-minutes: 15
+  re-ally-hours: 24
 # wars: /team enemy <team> declares war (on both sides at once), /team peace <team> ends it when both leaders agree.
 # Kills in a war count extra (points.enemy-kill-bonus) and both teams see the score.
 max-enemies: 3

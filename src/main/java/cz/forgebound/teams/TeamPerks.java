@@ -66,7 +66,7 @@ final class TeamPerks implements Listener {
         Player victim = event.getEntity();
         Player killer = victim.getKiller();
         Team vt = store.of(victim);
-        if (vt == null || killer == null || killer.equals(victim) || store.friendly(killer.getUniqueId(), victim.getUniqueId())) {
+        if (vt == null || killer == null || killer.equals(victim) || store.safe(killer.getUniqueId(), victim.getUniqueId())) {
             return;
         }
         String pair = killer.getUniqueId() + ";" + victim.getUniqueId();

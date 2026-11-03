@@ -77,6 +77,14 @@ public final class TeamStore {
     void load() {
         YamlConfiguration y = YamlConfiguration.loadConfiguration(file);
         weeklyPaid = y.getLong("weekly-paid");
+        for (String sec : new String[]{"truce", "ally-cooldown"}) {
+            ConfigurationSection cs = y.getConfigurationSection(sec);
+            if (cs != null) {
+                for (String k : cs.getKeys(false)) {
+                    (sec.equals("truce") ? truce : allyCooldown).put(k, cs.getLong(k));
+                }
+            }
+        }
         ConfigurationSection root = y.getConfigurationSection("teams");
         if (root != null) {
             for (String id : root.getKeys(false)) {
@@ -156,6 +164,17 @@ public final class TeamStore {
     void save() {
         YamlConfiguration y = new YamlConfiguration();
         y.set("weekly-paid", weeklyPaid);
+        long nowMs = System.currentTimeMillis();
+        truce.forEach((k, v) -> {
+            if (v > nowMs) {
+                y.set("truce." + k, v);
+            }
+        });
+        allyCooldown.forEach((k, v) -> {
+            if (v > nowMs) {
+                y.set("ally-cooldown." + k, v);
+            }
+        });
         for (Team t : teams.values()) {
             String b = "teams." + t.id + ".";
             y.set(b + "name", t.name);
@@ -303,6 +322,33 @@ public final class TeamStore {
         }
         Team t = teams.get(ta);
         return t != null && t.allies.contains(tb);
+    }
+
+    // ---------------------------------------------------------------- truce after an alliance ends
+
+    /** "teamA;teamB" (sorted) -> until when (ms) the two can't hurt each other after their alliance ended */
+    final Map<String, Long> truce = new ConcurrentHashMap<>();
+    /** "teamA;teamB" (sorted) -> until when (ms) they can't become allies again */
+    final Map<String, Long> allyCooldown = new ConcurrentHashMap<>();
+
+    static String pair(String a, String b) {
+        return a.compareTo(b) < 0 ? a + ";" + b : b + ";" + a;
+    }
+
+    /** Teams that just ended their alliance: for a while kills between them pay no bounty (they can fight). */
+    public boolean truce(UUID a, UUID b) {
+        String ta = byPlayer.get(a);
+        String tb = byPlayer.get(b);
+        if (ta == null || tb == null || ta.equals(tb)) {
+            return false;
+        }
+        Long until = truce.get(pair(ta, tb));
+        return until != null && until > System.currentTimeMillis();
+    }
+
+    /** On the same side (teammates, allies) or in a truce after an alliance: kills don't pay a team bounty. */
+    public boolean safe(UUID a, UUID b) {
+        return friendly(a, b) || truce(a, b);
     }
 
     /** At war with each other. */

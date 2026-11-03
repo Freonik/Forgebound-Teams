@@ -95,6 +95,9 @@ public final class ForgeboundTeams extends JavaPlugin {
         // Forgebound asks this to know who is on the same side (teammates and allies)
         BiPredicate<Player, Player> sameSide = (a, b) -> store.friendly(a.getUniqueId(), b.getUniqueId());
         getServer().getServicesManager().register(BiPredicate.class, sameSide, this, ServicePriority.Normal);
+        // ... and this for the bounty: teams whose alliance just ended pay no bounty for each other (no ally-break farming)
+        java.util.function.BiFunction<Player, Player, Boolean> noBounty = (a, b) -> store.truce(a.getUniqueId(), b.getUniqueId());
+        getServer().getServicesManager().register(java.util.function.BiFunction.class, noBounty, this, ServicePriority.Normal);
         registerCommands();
         for (Player p : Bukkit.getOnlinePlayers()) {
             store.refreshName(p);
@@ -672,6 +675,13 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
         int max = getConfig().getInt("max-allies", 1);
         long now = System.currentTimeMillis();
+        Long blocked = store.allyCooldown.get(TeamStore.pair(t.id, other.id));
+        if (blocked != null && blocked > now) {
+            long mins = (blocked - now) / 60_000L + 1;
+            tell(p, "&cYou ended your alliance with them not long ago. &7Allies again in "
+                    + (mins >= 60 ? (mins / 60) + " h " + (mins % 60) + " min" : mins + " min") + ".");
+            return;
+        }
         Long asked = allyRequests.getOrDefault(t.id, Map.of()).get(other.id);
         if (asked != null && asked > now) {
             // they asked us first: this is the yes
@@ -839,10 +849,20 @@ public final class ForgeboundTeams extends JavaPlugin {
         }
         t.allies.remove(other.id);
         other.allies.remove(t.id);
+        long now = System.currentTimeMillis();
+        long truceMin = getConfig().getLong("alliance.truce-minutes", 15);
+        long againHours = getConfig().getLong("alliance.re-ally-hours", 24);
+        String key = TeamStore.pair(t.id, other.id);
+        if (truceMin > 0) {
+            store.truce.put(key, now + truceMin * 60_000L);
+        }
+        if (againHours > 0) {
+            store.allyCooldown.put(key, now + againHours * 3_600_000L);
+        }
         store.save();
         getLogger().info("[Teams] " + t.name + " ended the alliance with " + other.name);
         Bukkit.broadcast(prefix().append(teamName(t)).append(color(" &7ended the alliance with ")).append(teamName(other))
-                .append(color("&7.")));
+                .append(color("&7." + (truceMin > 0 ? " &8(for " + truceMin + " min kills between them pay no bounty)" : ""))));
     }
 
     private void info(Player p) {

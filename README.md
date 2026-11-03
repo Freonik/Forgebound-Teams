@@ -22,6 +22,8 @@ answer invites, invite online players, manage members (officer, leader, kick), t
 - Teammates and allies **can't hurt each other**: hits, arrows, tamed wolves, harmful splash potions.
 - Each team can have **one ally** (`max-allies`). Leaders offer an alliance with `/team ally <team>`, the other
   leader accepts with the same command.
+  When an alliance ends, kills between the two teams pay **no bounty for 15 minutes** (they can fight)
+  and they can't become allies again for **24 hours** (`alliance` in the config).
 - **Colors:** 13 basic colors, 18 more (pink, orange, mint, teal, lavender...) or any `#rrggbb`. The tag and chat
   show the exact color, the name above the head the closest of the 16 basic ones.
 - **Team banner:** make any banner at a loom, hold it and run `/team banner` (or click it in the settings). It shows
