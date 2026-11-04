@@ -93,7 +93,7 @@ public final class TeamListener implements Listener {
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onHit(EntityDamageByEntityEvent event) {
-        if (plugin.getConfig().getBoolean("friendly-fire", false)) {
+        if (plugin.getConfig().getBoolean("friendly-fire", false) || plugin.corrupted()) {
             return;
         }
         Player attacker = source(event.getDamager());
@@ -110,7 +110,8 @@ public final class TeamListener implements Listener {
     @EventHandler(ignoreCancelled = true)
     public void onSplash(PotionSplashEvent event) {
         ThrownPotion potion = event.getPotion();
-        if (plugin.getConfig().getBoolean("friendly-fire", false) || !(potion.getShooter() instanceof Player thrower)) {
+        if (plugin.getConfig().getBoolean("friendly-fire", false) || plugin.corrupted()
+                || !(potion.getShooter() instanceof Player thrower)) {
             return;
         }
         boolean harmful = false;

@@ -108,6 +108,9 @@ Alias: `/clan`.
 
 ## Configuration
 
+During Forgebound's big events the teams are **corrupted**: teammates and allies can hurt and kill each other until the
+event ends (`corrupt-during-big-events`).
+
 Everything is in `plugins/ForgeboundTeams/config.yml`: team size, allies, friendly fire, blocked words for names and
 tags, the chat prefixes, the points and auto-update.
 

@@ -53,6 +53,12 @@ together:
   amplifier: 0
 # true = teammates and allies can hurt each other
 friendly-fire: false
+# Corrupted teams: during Forgebound's big events (The Closing World, The Hunt, The Forge Colossus) teammates and
+# allies can hurt and kill each other - every player for themselves. Teams, tags, stash and points stay.
+corrupt-during-big-events: true
+corrupt-messages:
+  start: "&4&lThe teams are corrupted! &7Until the event ends, teammates and allies can kill each other."
+  end: "&aThe teams are whole again. &7Teammates and allies are safe from each other."
 # names and tags that aren't allowed (anywhere inside, any case)
 blocked-words: []
 

@@ -88,12 +88,13 @@ public final class ForgeboundTeams extends JavaPlugin {
         updater = new Updater(this);
         getServer().getPluginManager().registerEvents(updater, this);
         updater.start();
+        getServer().getScheduler().runTaskTimer(this, this::watchCorruption, 40L, 20L);
         // Forgebound's nightly restart asks every Forgebound plugin for a new version at once (one restart for all)
         java.util.concurrent.Callable<String> nightly = updater::checkNow;
         getServer().getServicesManager().register(java.util.concurrent.Callable.class, nightly, this,
                 org.bukkit.plugin.ServicePriority.Normal);
         // Forgebound asks this to know who is on the same side (teammates and allies)
-        BiPredicate<Player, Player> sameSide = (a, b) -> store.friendly(a.getUniqueId(), b.getUniqueId());
+        BiPredicate<Player, Player> sameSide = (a, b) -> !corrupted() && store.friendly(a.getUniqueId(), b.getUniqueId());
         getServer().getServicesManager().register(BiPredicate.class, sameSide, this, ServicePriority.Normal);
         // ... and this for the bounty: teams whose alliance just ended pay no bounty for each other (no ally-break farming)
         java.util.function.BiFunction<Player, Player, Boolean> noBounty = (a, b) -> store.truce(a.getUniqueId(), b.getUniqueId());
@@ -122,6 +123,44 @@ public final class ForgeboundTeams extends JavaPlugin {
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /** Corrupted teams: while Forgebound runs a big event, teammates and allies don't protect each other. */
+    private boolean wasCorrupted;
+
+    public boolean corrupted() {
+        if (!getConfig().getBoolean("corrupt-during-big-events", true)) {
+            return false;
+        }
+        for (org.bukkit.plugin.RegisteredServiceProvider<java.util.function.BooleanSupplier> reg
+                : getServer().getServicesManager().getRegistrations(java.util.function.BooleanSupplier.class)) {
+            if (reg.getPlugin().getName().equals("Forgebound") && reg.getPlugin().isEnabled()) {
+                try {
+                    if (reg.getProvider().getAsBoolean()) {
+                        return true;
+                    }
+                } catch (RuntimeException ignored) {
+                    // not ours
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Checks once a second whether a big event started or ended, and flips the scoreboard teams' friendly fire. */
+    private void watchCorruption() {
+        boolean now = corrupted();
+        if (now == wasCorrupted) {
+            return;
+        }
+        wasCorrupted = now;
+        for (Team t : store.all()) {
+            store.syncScoreboard(t);
+        }
+        Bukkit.broadcast(prefix().append(color(now
+                ? getConfig().getString("corrupt-messages.start", "&4&lThe teams are corrupted! &7Until the event ends, teammates and allies can kill each other.")
+                : getConfig().getString("corrupt-messages.end", "&aThe teams are whole again. &7Teammates and allies are safe from each other."))));
+        getLogger().info("[Teams] teams " + (now ? "corrupted (big event)" : "restored"));
     }
 
     public TeamStore store() {

@@ -462,7 +462,7 @@ public final class TeamStore {
         v.displayName(Component.text(t.name, t.color));
         v.prefix(Component.text("[" + t.tag + "] ", t.color));
         v.color(t.color instanceof NamedTextColor n ? n : NamedTextColor.nearestTo(t.color));
-        v.setAllowFriendlyFire(plugin.getConfig().getBoolean("friendly-fire", false));
+        v.setAllowFriendlyFire(plugin.getConfig().getBoolean("friendly-fire", false) || plugin.corrupted());
         v.setCanSeeFriendlyInvisibles(true);
         for (String name : t.names.values()) {
             if (!v.hasEntry(name)) {
